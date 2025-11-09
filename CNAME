@@ -1,1 +1,433 @@
-123.gamebiscuit.com
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Bouncing Ball — Your Website</title>
+  <style>
+    /* Simple, responsive full-screen canvas layout + small control panel */
+    :root{
+      --panel-bg: rgba(0,0,0,0.6);
+      --panel-fg: #fff;
+      --accent: #ffb74d;
+    }
+    html,body{
+      height:100%;
+      margin:0;
+      font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+      background: linear-gradient(180deg,#0f1724 0%, #081018 100%);
+      color:var(--panel-fg);
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
+    }
+    #canvas {
+      display:block;
+      width:100%;
+      height:100vh;
+    }
+
+    .controls {
+      position: fixed;
+      left: 12px;
+      top: 12px;
+      background: var(--panel-bg);
+      color: var(--panel-fg);
+      padding: 10px;
+      border-radius: 10px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.6);
+      z-index: 20;
+      min-width: 220px;
+      backdrop-filter: blur(6px);
+    }
+    .controls h1{
+      font-size:14px;
+      margin:0 0 8px 0;
+      color:var(--accent);
+    }
+    .row{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      margin:6px 0;
+      font-size:13px;
+    }
+    label{font-size:12px; min-width:60px; opacity:0.9}
+    input[type="range"]{flex:1}
+    button, input[type="color"]{
+      background:transparent;
+      color:var(--panel-fg);
+      border:1px solid rgba(255,255,255,0.08);
+      padding:6px 8px;
+      border-radius:6px;
+      cursor:pointer;
+    }
+    .small {
+      font-size:12px;
+      padding:6px;
+    }
+    .meta {
+      position: fixed;
+      right: 12px;
+      top: 12px;
+      color:#9aa6b2;
+      font-size:13px;
+      background: rgba(0,0,0,0.35);
+      padding:8px 10px;
+      border-radius:8px;
+      z-index:20;
+      backdrop-filter: blur(4px);
+    }
+    a.link { color:var(--accent); text-decoration:none; }
+    footer.help {
+      position: fixed;
+      left: 12px;
+      bottom: 12px;
+      font-size:13px;
+      color:#9aa6b2;
+      background: rgba(0,0,0,0.28);
+      padding:8px 10px;
+      border-radius:8px;
+      backdrop-filter: blur(4px);
+      z-index:20;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas" aria-label="Bouncing ball animation"></canvas>
+
+  <div class="controls" role="region" aria-label="Animation controls">
+    <h1>Bouncing Ball</h1>
+
+    <div class="row">
+      <label for="gravity">Gravity</label>
+      <input id="gravity" type="range" min="0" max="3" step="0.01" value="0.6">
+      <span id="gravityVal">0.60</span>
+    </div>
+
+    <div class="row">
+      <label for="elasticity">Bounce</label>
+      <input id="elasticity" type="range" min="0" max="1" step="0.01" value="0.78">
+      <span id="elasticVal">0.78</span>
+    </div>
+
+    <div class="row">
+      <label for="radius">Size</label>
+      <input id="radius" type="range" min="6" max="120" step="1" value="32">
+      <span id="radiusVal">32</span>
+    </div>
+
+    <div class="row">
+      <label for="color">Color</label>
+      <input id="color" type="color" value="#ff4d4d">
+    </div>
+
+    <div class="row" style="justify-content:space-between;">
+      <button id="spawn" class="small">Spawn Ball</button>
+      <button id="reset" class="small">Reset</button>
+      <button id="pause" class="small">Pause</button>
+    </div>
+  </div>
+
+  <div class="meta" aria-hidden="true">
+    Click or tap canvas to spawn a ball where you clicked.<br>
+    Keys: Space = pause/play
+  </div>
+
+  <footer class="help" aria-hidden="true">
+    Save this file as index.html and open in a browser to run locally.
+  </footer>
+
+<script>
+/*
+  Bouncing Ball Canvas
+  - click/tap canvas to spawn ball at that location
+  - controls on top-left to tune gravity, bounce (elasticity), size and color
+  - pause/play and reset functions
+*/
+
+(() => {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d', { alpha: false });
+
+  function resize(){
+    canvas.width = innerWidth;
+    canvas.height = innerHeight;
+  }
+  addEventListener('resize', resize, { passive: true });
+  resize();
+
+  // Controls
+  const gravityInput = document.getElementById('gravity');
+  const gravityVal = document.getElementById('gravityVal');
+  const elasticityInput = document.getElementById('elasticity');
+  const elasticVal = document.getElementById('elasticVal');
+  const radiusInput = document.getElementById('radius');
+  const radiusVal = document.getElementById('radiusVal');
+  const colorInput = document.getElementById('color');
+  const spawnBtn = document.getElementById('spawn');
+  const resetBtn = document.getElementById('reset');
+  const pauseBtn = document.getElementById('pause');
+
+  function updateUI(){
+    gravityVal.textContent = Number(gravityInput.value).toFixed(2);
+    elasticVal.textContent = Number(elasticityInput.value).toFixed(2);
+    radiusVal.textContent = radiusInput.value;
+  }
+  [gravityInput, elasticityInput, radiusInput].forEach(i => i.addEventListener('input', updateUI));
+  updateUI();
+
+  let gravity = parseFloat(gravityInput.value);
+  let elasticity = parseFloat(elasticityInput.value);
+  let defaultRadius = parseInt(radiusInput.value,10);
+  let color = colorInput.value;
+  let paused = false;
+
+  gravityInput.addEventListener('input', ()=> gravity = parseFloat(gravityInput.value));
+  elasticityInput.addEventListener('input', ()=> elasticity = parseFloat(elasticityInput.value));
+  radiusInput.addEventListener('input', ()=> defaultRadius = parseInt(radiusInput.value,10));
+  colorInput.addEventListener('input', ()=> color = colorInput.value);
+
+  // Ball class
+  class Ball {
+    constructor(x,y,r,color){
+      this.x = x;
+      this.y = y;
+      this.r = r;
+      // give a little random starting velocity
+      this.vx = (Math.random()*2 - 1) * 6;
+      this.vy = (Math.random()*-2 - 1) * 2;
+      this.color = color;
+      this.id = Math.random().toString(36).slice(2,9);
+    }
+    step(dt){
+      // dt in seconds
+      this.vy += gravity * 60 * dt; // scale gravity so sliders feel natural
+      this.x += this.vx * (60 * dt);
+      this.y += this.vy * (60 * dt);
+
+      // Floor collision
+      if (this.y + this.r > canvas.height) {
+        this.y = canvas.height - this.r;
+        // dampen tiny bounce noise
+        this.vy = -this.vy * elasticity;
+        // apply ground friction for horizontal motion
+        this.vx *= 0.995;
+        if (Math.abs(this.vy) < 0.05) this.vy = 0;
+      }
+      // ceiling
+      if (this.y - this.r < 0) {
+        this.y = this.r;
+        this.vy = -this.vy * elasticity;
+      }
+      // left/right walls
+      if (this.x - this.r < 0) {
+        this.x = this.r;
+        this.vx = -this.vx * elasticity;
+      }
+      if (this.x + this.r > canvas.width) {
+        this.x = canvas.width - this.r;
+        this.vx = -this.vx * elasticity;
+      }
+    }
+    draw(ctx){
+      // shadow
+      const shadowAlpha = Math.min(0.45, 0.12 + (this.r/200));
+      ctx.beginPath();
+      ctx.ellipse(this.x, canvas.height - this.r*0.1, this.r*0.85, this.r*0.35, 0, 0, Math.PI*2);
+      ctx.fillStyle = `rgba(10,10,20,${shadowAlpha})`;
+      ctx.fill();
+
+      // ball with simple rim highlight
+      const g = ctx.createRadialGradient(this.x - this.r*0.3, this.y - this.r*0.4, this.r*0.1, this.x, this.y, this.r);
+      g.addColorStop(0, lightenColor(this.color, 0.25));
+      g.addColorStop(0.6, this.color);
+      g.addColorStop(1, darkenColor(this.color, 0.25));
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.r, 0, Math.PI*2);
+      ctx.fillStyle = g;
+      ctx.fill();
+
+      // soft rim
+      ctx.lineWidth = Math.max(1, this.r*0.06);
+      ctx.strokeStyle = "rgba(255,255,255,0.12)";
+      ctx.stroke();
+    }
+  }
+
+  // simple color helpers
+  function hexToRgb(hex){
+    hex = hex.replace('#','');
+    if (hex.length === 3) hex = hex.split('').map(s=>s+s).join('');
+    const n = parseInt(hex,16);
+    return {r:(n>>16)&255, g:(n>>8)&255, b:n&255};
+  }
+  function rgbToHex({r,g,b}){ return '#' + [r,g,b].map(x=>x.toString(16).padStart(2,'0')).join(''); }
+  function clamp(v,min,max){ return Math.max(min,Math.min(max,v)); }
+  function lightenColor(hex, amt){
+    const c = hexToRgb(hex);
+    return rgbToHex({r:clamp(Math.round(c.r + (255-c.r)*amt),0,255), g:clamp(Math.round(c.g + (255-c.g)*amt),0,255), b:clamp(Math.round(c.b + (255-c.b)*amt),0,255)});
+  }
+  function darkenColor(hex, amt){
+    const c = hexToRgb(hex);
+    return rgbToHex({r:clamp(Math.round(c.r*(1-amt)),0,255), g:clamp(Math.round(c.g*(1-amt)),0,255), b:clamp(Math.round(c.b*(1-amt)),0,255)});
+  }
+
+  // animation state
+  const balls = [];
+  let last = performance.now();
+  let fps = 0;
+  let frames = 0;
+  let fpsTimer = 0;
+
+  function step(now){
+    const dtMs = Math.min(40, now - last);
+    const dt = dtMs / 1000;
+    last = now;
+
+    if (!paused){
+      // update
+      for (let b of balls) b.step(dt);
+    }
+
+    // draw
+    draw();
+
+    // fps calc
+    frames++;
+    fpsTimer += dtMs;
+    if (fpsTimer >= 500){
+      fps = Math.round((frames / fpsTimer) * 1000);
+      frames = 0;
+      fpsTimer = 0;
+    }
+
+    requestAnimationFrame(step);
+  }
+
+  function draw(){
+    // clear background (faster to fillRect with no alpha)
+    const w = canvas.width, h = canvas.height;
+    // subtle background gradient
+    const bg = ctx.createLinearGradient(0,0,0,h);
+    bg.addColorStop(0, '#071123');
+    bg.addColorStop(1, '#02040a');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0,0,w,h);
+
+    // small grid / horizon to give sense of space (very subtle)
+    ctx.save();
+    ctx.globalAlpha = 0.03;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1;
+    for (let y = h - 60; y < h; y += 6){
+      ctx.beginPath();
+      ctx.moveTo(0,y);
+      ctx.lineTo(w,y);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // balls
+    for (let b of balls) b.draw(ctx);
+
+    // overlay debug
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    ctx.font = '12px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto';
+    ctx.fillText(`Balls: ${balls.length}   FPS: ${fps}   Gravity: ${gravity.toFixed(2)}   Bounce: ${elasticity.toFixed(2)}`, 14, canvas.height - 14);
+    ctx.restore();
+  }
+
+  // spawn helpers
+  function spawnAt(x,y,options = {}){
+    const r = options.r ?? defaultRadius;
+    const c = options.color ?? color;
+    const b = new Ball(x, y, r, c);
+    // optional initial push
+    if (options.vx !== undefined) b.vx = options.vx;
+    if (options.vy !== undefined) b.vy = options.vy;
+    balls.push(b);
+    return b;
+  }
+
+  // interactions
+  canvas.addEventListener('pointerdown', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    // spawn with a slight upward velocity
+    spawnAt(x, y, { r: defaultRadius, color });
+  });
+
+  spawnBtn.addEventListener('click', ()=> {
+    // spawn near top center with random spread
+    const x = canvas.width * (0.2 + Math.random()*0.6);
+    const y = Math.max(40, canvas.height * 0.06 + Math.random()*80);
+    spawnAt(x,y, { r: defaultRadius, color });
+  });
+
+  resetBtn.addEventListener('click', ()=> {
+    balls.length = 0;
+  });
+
+  pauseBtn.addEventListener('click', ()=> {
+    paused = !paused;
+    pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+  });
+
+  // keyboard
+  addEventListener('keydown', (e) => {
+    if (e.code === 'Space') {
+      e.preventDefault();
+      paused = !paused;
+      pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+    }
+  });
+
+  // small auto-populate to make page interesting on load
+  function initShowcase(){
+    const cx = canvas.width / 2;
+    const w = canvas.width;
+    // spawn a few balls
+    for (let i = 0; i < 6; i++){
+      const px = Math.random() * w * 0.8 + w*0.1;
+      const py = Math.random() * canvas.height * 0.3 + 40;
+      const r = Math.round(defaultRadius * (0.6 + Math.random()*1.4));
+      const col = randomColor();
+      spawnAt(px, py, { r, color: col });
+    }
+  }
+  function randomColor(){
+    // some pleasing palette
+    const palette = ['#ff4d4d','#ffb84d','#ffd24d','#7bd389','#4da6ff','#b98cff','#ff6fb4'];
+    return palette[Math.floor(Math.random()*palette.length)];
+  }
+
+  // small reactive UI: keep defaultRadius & color in sync if user changes controls while paused
+  const observer = new MutationObserver(()=>{ /* no-op placeholder */ });
+
+  // start
+  last = performance.now();
+  initShowcase();
+  requestAnimationFrame(step);
+
+  // Utilities: ensure canvas keeps correct pixel ratio on high-DPI
+  (function setPixelRatio(){
+    const dpr = Math.max(1, devicePixelRatio || 1);
+    function adapt(){
+      const cssW = innerWidth;
+      const cssH = innerHeight;
+      canvas.style.width = cssW + 'px';
+      canvas.style.height = cssH + 'px';
+      canvas.width = Math.round(cssW * dpr);
+      canvas.height = Math.round(cssH * dpr);
+      ctx.setTransform(dpr,0,0,dpr,0,0);
+    }
+    addEventListener('resize', adapt, { passive:true });
+    adapt();
+  })();
+
+})();
+</script>
+</body>
+</html>
